@@ -14,7 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout customization repository
         uses: actions/checkout@v4
@@ -23,6 +23,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
       - name: Fetch upstream source
         shell: pwsh
@@ -34,34 +35,38 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path 'patch_branding.py')) { throw 'В репозитории отсутствует patch_branding.py.' }
+          python -m py_compile patch_branding.py
+          if ($LASTEXITCODE -ne 0) { throw 'Ошибка синтаксиса patch_branding.py.' }
           python patch_branding.py
-          if ($LASTEXITCODE -ne 0) { throw 'Не удалось применить изменения брендинга.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось применить изменения брендинга и интерфейса.' }
 
       - name: Install build dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ./upstream
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось установить зависимости проекта.' }
           python -m pip install pyinstaller
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось установить PyInstaller.' }
 
       - name: Build Windows executable
         shell: pwsh
         run: |
           python -m PyInstaller --noconfirm --clean upstream/packaging/windows.spec
           if ($LASTEXITCODE -ne 0) { throw 'PyInstaller завершился с ошибкой.' }
-          $exe = Get-ChildItem -Path dist -Filter 'TG_UNLOCK.exe' -Recurse | Select-Object -First 1
+          $exe = Get-ChildItem -Path 'dist' -Filter 'TG_UNLOCK.exe' -Recurse -File | Select-Object -First 1
           if (-not $exe) { throw 'После сборки не найден TG_UNLOCK.exe.' }
-          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          New-Item -ItemType Directory -Force -Path 'artifact' | Out-Null
           Copy-Item $exe.FullName 'artifact/TG_UNLOCK.exe' -Force
           Copy-Item 'upstream/LICENSE' 'artifact/UPSTREAM-LICENSE.txt' -Force
-          @'
-          TG UNLOCK
-          Разработчик интерфейсной модификации: Artem_Sukhinin
-
-          TG UNLOCK is a customized build of Flowseal/tg-ws-proxy.
-          Original project copyright and MIT license notices are retained.
-          This build does not claim authorship of upstream proxy code.
-          '@ | Set-Content -Encoding utf8 artifact/ABOUT-TG-UNLOCK.txt
+          @(
+            'TG UNLOCK',
+            'Автор приложения: Artem_Sukhinin',
+            '',
+            'Customized build of Flowseal/tg-ws-proxy.',
+            'Original copyright and MIT license notices are retained.',
+            'The upstream proxy implementation is not claimed as original work.'
+          ) | Set-Content -Encoding utf8 'artifact/ABOUT-TG-UNLOCK.txt'
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
