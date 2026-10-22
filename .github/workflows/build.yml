@@ -53,11 +53,21 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --clean upstream/packaging/windows.spec
           if ($LASTEXITCODE -ne 0) { throw 'PyInstaller завершился с ошибкой.' }
-          $exe = Get-ChildItem -Path 'dist' -Filter 'TG_UNLOCK.exe' -Recurse -File | Select-Object -First 1
-          if (-not $exe) { throw 'После сборки не найден TG_UNLOCK.exe.' }
+
+          # Имя EXE в upstream .spec может остаться TgWsProxy.exe.
+          # Берём любой созданный EXE и публикуем его под именем TG_UNLOCK.exe.
+          $exe = Get-ChildItem -Path 'dist' -Filter '*.exe' -Recurse -File |
+            Where-Object { $_.FullName -notmatch '[\\/]artifact[\\/]' } |
+            Select-Object -First 1
+          if (-not $exe) { throw 'После сборки не найден EXE-файл в папке dist.' }
+
           New-Item -ItemType Directory -Force -Path 'artifact' | Out-Null
           Copy-Item $exe.FullName 'artifact/TG_UNLOCK.exe' -Force
-          Copy-Item 'upstream/LICENSE' 'artifact/UPSTREAM-LICENSE.txt' -Force
+
+          if (Test-Path 'upstream/LICENSE') {
+            Copy-Item 'upstream/LICENSE' 'artifact/UPSTREAM-LICENSE.txt' -Force
+          }
+
           @(
             'TG UNLOCK',
             'Автор приложения: Artem_Sukhinin',
