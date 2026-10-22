@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
+    paths:
+      - '.github/workflows/build.yml'
+      - 'patch_branding.py'
 
 permissions:
   contents: read
@@ -11,64 +14,59 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout TG UNLOCK build wrapper
+      - name: Checkout customization repository
         uses: actions/checkout@v4
-
-      - name: Checkout upstream source
-        uses: actions/checkout@v4
-        with:
-          repository: Flowseal/tg-ws-proxy
-          ref: main
-          path: upstream
-          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
-      - name: Install project dependencies
+      - name: Fetch upstream source
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/Flowseal/tg-ws-proxy.git upstream
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось скачать исходный проект Flowseal/tg-ws-proxy.' }
+
+      - name: Apply TG UNLOCK branding and UI improvements
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'patch_branding.py')) { throw 'В репозитории отсутствует patch_branding.py.' }
+          python patch_branding.py
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось применить изменения брендинга.' }
+
+      - name: Install build dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          if (Test-Path upstream/pyproject.toml) {
-            python -m pip install -e upstream
-          } else {
-            Write-Error 'Upstream pyproject.toml not found; upstream build layout may have changed.'
-          }
+          python -m pip install -e ./upstream
+          python -m pip install pyinstaller
 
-      - name: Build upstream Windows executable
-        shell: pwsh
-        working-directory: upstream
-        run: |
-          if (Test-Path packaging/windows.spec) {
-            python -m pip install pyinstaller
-            python -m PyInstaller --noconfirm packaging/windows.spec
-          } else {
-            Write-Error 'packaging/windows.spec not found; check upstream build instructions.'
-          }
-
-      - name: Prepare artifact and preserve upstream license
+      - name: Build Windows executable
         shell: pwsh
         run: |
-          $exe = Get-ChildItem upstream/dist -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) {
-            throw 'No EXE found in upstream/dist. Review the upstream build output.'
-          }
+          python -m PyInstaller --noconfirm --clean upstream/packaging/windows.spec
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller завершился с ошибкой.' }
+          $exe = Get-ChildItem -Path dist -Filter 'TG_UNLOCK.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'После сборки не найден TG_UNLOCK.exe.' }
           New-Item -ItemType Directory -Force -Path artifact | Out-Null
-          Copy-Item $exe.FullName 'artifact/TG_UNLOCK.exe'
-          if (Test-Path upstream/LICENSE) {
-            Copy-Item upstream/LICENSE 'artifact/UPSTREAM-LICENSE.txt'
-          } else {
-            throw 'Upstream LICENSE file missing; refusing to package without it.'
-          }
-          Set-Content -Path 'artifact/BUILD-INFO.txt' -Value 'TG UNLOCK unofficial build wrapper by Artem_Sukhinin. Upstream: Flowseal/tg-ws-proxy. Executable filename is customized; internal application branding may remain unchanged.' -Encoding UTF8
+          Copy-Item $exe.FullName 'artifact/TG_UNLOCK.exe' -Force
+          Copy-Item 'upstream/LICENSE' 'artifact/UPSTREAM-LICENSE.txt' -Force
+          @'
+          TG UNLOCK
+          Разработчик интерфейсной модификации: Artem_Sukhinin
 
-      - name: Upload TG UNLOCK artifact
+          TG UNLOCK is a customized build of Flowseal/tg-ws-proxy.
+          Original project copyright and MIT license notices are retained.
+          This build does not claim authorship of upstream proxy code.
+          '@ | Set-Content -Encoding utf8 artifact/ABOUT-TG-UNLOCK.txt
+
+      - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TG_UNLOCK-windows-x64
+          name: TG-UNLOCK-windows-x64
           path: artifact/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
