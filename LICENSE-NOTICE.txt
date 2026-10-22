@@ -1,0 +1,8 @@
+TG UNLOCK is an unofficial personalized build wrapper prepared by Artem_Sukhinin.
+
+Upstream software: Flowseal/tg-ws-proxy
+Upstream repository: https://github.com/Flowseal/tg-ws-proxy
+
+The upstream project is published under the MIT License. The upstream license and copyright notice must be preserved with redistributed copies. The complete upstream LICENSE file is fetched from the upstream repository during GitHub Actions build and included in the artifact as UPSTREAM-LICENSE.txt.
+
+Artem_Sukhinin claims authorship only over this build wrapper and personalization, not over the original Flowseal source code.
