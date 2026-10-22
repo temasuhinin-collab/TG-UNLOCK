@@ -1,43 +1,75 @@
-from __future__ import annotations
+    relative = "ui/settings_form.py"
+    source = read_text(relative)
+    start = source.find("def _create_header(ctk, frame, theme):")
+    end = source.find("\ndef _create_interface(", start)
+    if start < 0 or end < 0:
+        raise SystemExit("Не удалось найти функцию заголовка настроек; UI не изменён.")
 
-import json
-from pathlib import Path
+    replacement = '''def _create_header(ctk, frame, theme):
+    """TG UNLOCK branded header with direct developer contact; no donation CTA."""
+    header = ctk.CTkFrame(frame, fg_color="transparent")
+    header.pack(fill="x", pady=(0, 10))
 
-ROOT = Path(__file__).resolve().parent / "upstream"
+    title_row = ctk.CTkFrame(header, fg_color="transparent")
+    title_row.pack(fill="x")
+    ctk.CTkLabel(
+        title_row, text="TG UNLOCK",
+        font=(theme.ui_font_family, 20, "bold"),
+        text_color=theme.text_primary, anchor="w",
+    ).pack(side="left")
+    ctk.CTkLabel(
+        title_row, text=f"v{__version__}",
+        font=(theme.ui_font_family, 11),
+        text_color=theme.text_secondary, anchor="e",
+    ).pack(side="right", padx=(6, 0))
 
-
-def replace_once(path: str, old: str, new: str) -> None:
-    target = ROOT / path
-    text = target.read_text(encoding="utf-8")
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(
-            f"Expected exactly one occurrence of {old!r} in {path}; found {count}. "
-            "Stopping rather than making a risky patch."
-        )
-    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+    contact_row = ctk.CTkFrame(header, fg_color="transparent")
+    contact_row.pack(fill="x", pady=(3, 0))
+    ctk.CTkLabel(
+        contact_row,
+        text="Автор приложения: Artem_Sukhinin",
+        font=(theme.ui_font_family, 10),
+        text_color=theme.text_secondary,
+        anchor="w",
+    ).pack(side="left", fill="x", expand=True)
+    contact_button = ctk.CTkButton(
+        contact_row,
+        text="Связаться ↗",
+        width=112,
+        height=30,
+        font=(theme.ui_font_family, 12, "bold"),
+        corner_radius=9,
+        fg_color=theme.tg_blue,
+        hover_color=theme.tg_blue_hover,
+        text_color="#ffffff",
+        border_width=0,
+        command=lambda: webbrowser.open("https://t.me/artem_sukhinin"),
+    )
+    contact_button.pack(side="right", padx=(8, 0))
+    attach_ctk_tooltip(contact_button, "Открыть Telegram и написать разработчику")
+    ctk.CTkFrame(
+        header, fg_color=theme.field_border, height=1, corner_radius=0,
+    ).pack(fill="x", pady=(10, 0))
+'''
+    write_text(relative, source[:start] + replacement + source[end:])
 
 
 def main() -> None:
-    # App identity and user-data directories.
-    replace_once("utils/tray_common.py", 'APP_NAME = "TgWsProxy"', 'APP_NAME = "TG UNLOCK"')
-    replace_once(
+    replace_exact("utils/tray_common.py", 'APP_NAME = "TgWsProxy"', 'APP_NAME = "TG UNLOCK"')
+    replace_exact(
         "utils/tray_common.py",
         'PORTABLE_DIR_NAME = "TgWsProxy_data"',
         'PORTABLE_DIR_NAME = "TG_UNLOCK_data"',
     )
 
-    # Use a unique mutex so this branded app does not collide with the upstream build.
     win_path = ROOT / "windows.py"
     win_text = win_path.read_text(encoding="utf-8")
-    win_text = win_text.replace(
-        "Local\\\\TgWsProxy_SingleInstance",
-        "Local\\\\TG_UNLOCK_SingleInstance",
-    )
-    win_path.write_text(win_text, encoding="utf-8")
+    win_text = win_text.replace("Local\\\\TgWsProxy_SingleInstance", "Local\\\\TG_UNLOCK_SingleInstance")
+    win_path.write_text(win_text, encoding="utf-8", newline="\n")
 
-    # Rename visible app/window titles while retaining the existing translations.
     locale_dir = ROOT / "ui" / "i18n"
+    if not locale_dir.is_dir():
+        raise SystemExit("Не найдена папка переводов ui/i18n.")
     for locale_file in locale_dir.glob("*.json"):
         try:
             data = json.loads(locale_file.read_text(encoding="utf-8"))
@@ -54,39 +86,21 @@ def main() -> None:
             if key in data:
                 data[key] = value
         locale_file.write_text(
-            json.dumps(data, ensure_ascii=False, separators=(",", ": ")) + "\n",
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
+            newline="\n",
         )
 
-    # Put the developer credit inside the Settings window, not only in documentation.
-    ui_path = ROOT / "ui" / "ctk_tray_ui.py"
-    ui = ui_path.read_text(encoding="utf-8")
-    anchor = '    attach_ctk_tooltip(cancel_btn, t("tip.cancel"))\n'
-    footer = anchor + '''    ctk.CTkLabel(
-        frame,
-        text="TG UNLOCK  •  разработчик Artem_Sukhinin",
-        font=(theme.ui_font_family, 10),
-        text_color=theme.text_secondary,
-    ).pack(anchor="center", pady=(8, 0))
-'''
-    if "разработчик Artem_Sukhinin" not in ui:
-        if ui.count(anchor) != 1:
-            raise SystemExit(
-                "Could not find the expected Settings button block; UI patch aborted safely."
-            )
-        ui_path.write_text(ui.replace(anchor, footer, 1), encoding="utf-8")
+    patch_settings_header()
 
-    # Give the Windows executable the requested name.
     spec_path = ROOT / "packaging" / "windows.spec"
     spec = spec_path.read_text(encoding="utf-8")
-    if "name='TgWsProxy'" in spec:
-        spec = spec.replace("name='TgWsProxy'", "name='TG_UNLOCK'", 1)
-    elif 'name="TgWsProxy"' in spec:
-        spec = spec.replace('name="TgWsProxy"', 'name="TG_UNLOCK"', 1)
-    else:
-        raise SystemExit("Could not find executable name in packaging/windows.spec.")
-    spec_path.write_text(spec, encoding="utf-8")
-    print("TG UNLOCK branding and in-app attribution applied successfully.")
+    spec, count = re.subn(r"(?m)^\s*name=['\"]TgWsProxy['\"],", "    name='TG_UNLOCK',", spec, count=1)
+    if count != 1:
+        raise SystemExit("Не удалось безопасно изменить имя EXE в packaging/windows.spec.")
+    spec_path.write_text(spec, encoding="utf-8", newline="\n")
+
+    print("TG UNLOCK: branding, header, developer contact and donation removal applied.")
 
 
 if __name__ == "__main__":
