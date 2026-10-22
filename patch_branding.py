@@ -1,3 +1,35 @@
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent / "upstream"
+
+
+def read_text(relative: str) -> str:
+    path = ROOT / relative
+    if not path.is_file():
+        raise SystemExit(f"Не найден исходный файл: {relative}")
+    return path.read_text(encoding="utf-8")
+
+
+def write_text(relative: str, content: str) -> None:
+    (ROOT / relative).write_text(content, encoding="utf-8", newline="\n")
+
+
+def replace_exact(relative: str, old: str, new: str) -> None:
+    text = read_text(relative)
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(
+            f"Безопасная остановка: в {relative} ожидалось одно совпадение, найдено {count}. "
+            "Версия upstream могла измениться; не применяю сомнительный патч."
+        )
+    write_text(relative, text.replace(old, new, 1))
+
+
+def patch_settings_header() -> None:
     relative = "ui/settings_form.py"
     source = read_text(relative)
     start = source.find("def _create_header(ctk, frame, theme):")
@@ -61,47 +93,3 @@ def main() -> None:
         'PORTABLE_DIR_NAME = "TgWsProxy_data"',
         'PORTABLE_DIR_NAME = "TG_UNLOCK_data"',
     )
-
-    win_path = ROOT / "windows.py"
-    win_text = win_path.read_text(encoding="utf-8")
-    win_text = win_text.replace("Local\\\\TgWsProxy_SingleInstance", "Local\\\\TG_UNLOCK_SingleInstance")
-    win_path.write_text(win_text, encoding="utf-8", newline="\n")
-
-    locale_dir = ROOT / "ui" / "i18n"
-    if not locale_dir.is_dir():
-        raise SystemExit("Не найдена папка переводов ui/i18n.")
-    for locale_file in locale_dir.glob("*.json"):
-        try:
-            data = json.loads(locale_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            continue
-        is_ru = locale_file.stem.lower().startswith("ru")
-        replacements = {
-            "app.name": "TG UNLOCK",
-            "app.error_title": "TG UNLOCK — Ошибка" if is_ru else "TG UNLOCK — Error",
-            "app.settings_title": "TG UNLOCK — Настройки" if is_ru else "TG UNLOCK — Settings",
-            "app.update_title": "TG UNLOCK — Обновление" if is_ru else "TG UNLOCK — Update",
-        }
-        for key, value in replacements.items():
-            if key in data:
-                data[key] = value
-        locale_file.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-            newline="\n",
-        )
-
-    patch_settings_header()
-
-    spec_path = ROOT / "packaging" / "windows.spec"
-    spec = spec_path.read_text(encoding="utf-8")
-    spec, count = re.subn(r"(?m)^\s*name=['\"]TgWsProxy['\"],", "    name='TG_UNLOCK',", spec, count=1)
-    if count != 1:
-        raise SystemExit("Не удалось безопасно изменить имя EXE в packaging/windows.spec.")
-    spec_path.write_text(spec, encoding="utf-8", newline="\n")
-
-    print("TG UNLOCK: branding, header, developer contact and donation removal applied.")
-
-
-if __name__ == "__main__":
-    main()
